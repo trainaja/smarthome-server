@@ -1,0 +1,159 @@
+import asyncio
+import logging
+import os
+import re
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+import uvicorn
+from google import genai
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+logging.basicConfig(level=logging.INFO)
+
+# Token & API Keys (Diambil dari Environment Variables Render)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "9140052661:AAF-2Zi4QHlRIoNJrC8F4yl90qb6eMTaQPA")
+
+# Membaca daftar API Keys dari environment
+raw_keys = [
+    os.getenv("GEMINI_KEY_1", "AQ.Ab8RN6KDZjgWECGyQWflsVbXT-vTvBlAV3F7PzNXXlYCtAz35w"),
+    os.getenv("GEMINI_KEY_2", "AQ.Ab8RN6KsZk0VX1MSKEFBJE_w_ViTFfvWiqf8g9To_vZZ5GY7Pg")
+]
+API_KEYS = [k for k in raw_keys if k]
+current_key_index = 0
+
+device_status = {
+    "lampu": "OFF",
+    "pompa": "OFF"
+}
+
+def ask_gemini_official(prompt_text: str) -> str:
+    global current_key_index
+    total_keys = len(API_KEYS)
+    if total_keys == 0:
+        return None
+        
+    for _ in range(total_keys):
+        active_key = API_KEYS[current_key_index]
+        try:
+            client = genai.Client(api_key=active_key)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt_text,
+                config={
+                    "system_instruction": "Jawab dengan ramah, singkat, dan padat (maksimal 2 kalimat) untuk sistem Smart Home.",
+                    "max_output_tokens": 150,
+                }
+            )
+            return response.text
+        except Exception as e:
+            print(f"⚠️ Key index {current_key_index} limit: {e}")
+            current_key_index = (current_key_index + 1) % total_keys
+
+    return None
+
+telegram_app = (
+    Application.builder()
+    .token(TELEGRAM_TOKEN)
+    .connect_timeout(60.0)
+    .read_timeout(60.0)
+    .write_timeout(60.0)
+    .pool_timeout(60.0)
+    .build()
+)
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_name = update.effective_user.first_name
+    await update.message.reply_text(
+        f"Halo {user_name}! 🤖\nServer Smart Home & AI Aktif!\n\n"
+        "Perintah Sakelar:\n"
+        "/status - Cek status sakelar\n"
+        "/lampu_on - Nyalakan Lampu\n"
+        "/lampu_off - Matikan Lampu"
+    )
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "🟢 Status System: ONLINE\n"
+        f"💡 Status Lampu: {device_status['lampu']}\n"
+        f"🚰 Status Pompa: {device_status['pompa']}"
+    )
+    await update.message.reply_text(msg)
+
+async def lampu_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    device_status["lampu"] = "ON"
+    await update.message.reply_text("💡 Lampu berhasil dinyalakan! (Relay Signal: HIGH)")
+
+async def lampu_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    device_status["lampu"] = "OFF"
+    await update.message.reply_text("🔌 Lampu berhasil dimatikan! (Relay Signal: LOW)")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    text_lower = user_text.lower()
+    print(f"📩 Pesan masuk: {user_text}")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    if re.search(r'\b(nyalakan|hidupkan|nyala|hidup|lampu on)\b', text_lower):
+        device_status["lampu"] = "ON"
+        await update.message.reply_text("💡 [Lokal] Lampu berhasil dinyalakan! (Relay: HIGH)")
+        return
+    elif re.search(r'\b(matikan|mati|tutup|lampu off)\b', text_lower):
+        device_status["lampu"] = "OFF"
+        await update.message.reply_text("🔌 [Lokal] Lampu berhasil dimatikan! (Relay: LOW)")
+        return
+    elif re.search(r'\b(status|cek|kondisi)\b', text_lower):
+        msg = (
+            "🟢 Status System: ONLINE\n"
+            f"💡 Status Lampu: {device_status['lampu']}\n"
+            f"🚰 Status Pompa: {device_status['pompa']}"
+        )
+        await update.message.reply_text(msg)
+        return
+
+    ai_reply = await asyncio.to_thread(ask_gemini_official, user_text)
+    
+    if ai_reply:
+        await update.message.reply_text(ai_reply)
+    else:
+        if "esp" in text_lower or "esp32" in text_lower:
+            await update.message.reply_text("🤖 ESP32 adalah mikrokontroler hemat biaya berdaya rendah dengan Wi-Fi & Bluetooth bawaan untuk sistem IoT.")
+        else:
+            await update.message.reply_text("🤖 Server Smart Home Aktif! Perintah sakelar berjalan lancar.")
+
+telegram_app.add_handler(CommandHandler("start", start_command))
+telegram_app.add_handler(CommandHandler("status", status_command))
+telegram_app.add_handler(CommandHandler("lampu_on", lampu_on_command))
+telegram_app.add_handler(CommandHandler("lampu_off", lampu_off_command))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("⏳ Menghubungkan ke Telegram Bot...")
+    try:
+        await telegram_app.initialize()
+        await telegram_app.start()
+        await telegram_app.updater.start_polling(drop_pending_updates=True)
+        print("🤖 Server Smart Home Berhasil Aktif!")
+        yield
+    except Exception as e:
+        print(f"❌ Error Bot: {e}")
+        yield
+    finally:
+        try:
+            if telegram_app.updater and telegram_app.updater.running:
+                await telegram_app.updater.stop()
+            await telegram_app.stop()
+            await telegram_app.shutdown()
+        except Exception:
+            pass
+
+app = FastAPI(title="Smart Home Server", lifespan=lifespan)
+
+@app.get("/")
+def home():
+    return {"status": "online", "devices": device_status}
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)

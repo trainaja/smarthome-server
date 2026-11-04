@@ -12,12 +12,15 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 logging.basicConfig(level=logging.INFO)
 
-# Token Telegram & API Keys diambil murni dari Environment Variables
+# Token Telegram diambil dari Environment Variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 
+# Membaca 4 API Keys dari Environment Variables Railway
 raw_keys = [
     os.getenv("GEMINI_KEY_1", ""),
-    os.getenv("GEMINI_KEY_2", "")
+    os.getenv("GEMINI_KEY_2", ""),
+    os.getenv("GEMINI_KEY_3", ""),
+    os.getenv("GEMINI_KEY_4", "")
 ]
 API_KEYS = [k for k in raw_keys if k]
 current_key_index = 0
@@ -36,7 +39,7 @@ def ask_gemini_official(prompt_text: str) -> str:
     for _ in range(total_keys):
         active_key = API_KEYS[current_key_index]
         try:
-            # Menggunakan REST API langsung agar kompatibel 100% dengan Token Cloud
+            # Menggunakan REST API langsung agar kompatibel 100% dengan Token Cloud/AI Studio
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={active_key}"
             headers = {"Content-Type": "application/json"}
             payload = {
@@ -52,6 +55,7 @@ def ask_gemini_official(prompt_text: str) -> str:
                 return result["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as e:
             print(f"⚠️ Key index {current_key_index} error: {e}")
+            # Pindah ke key berikutnya jika ada error / kuota habis
             current_key_index = (current_key_index + 1) % total_keys
 
     return None

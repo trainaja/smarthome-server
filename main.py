@@ -1,23 +1,23 @@
 import asyncio
+import json
 import logging
 import os
 import re
+import urllib.request
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import uvicorn
-from google import genai
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 logging.basicConfig(level=logging.INFO)
 
-# Token & API Keys
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "9140052661:AAF-2Zi4QHlRIoNJrC8F4yl90qb6eMTaQPA")
+# Token Telegram & API Keys diambil murni dari Environment Variables
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 
-# Membaca daftar API Keys dari environment
 raw_keys = [
-    os.getenv("GEMINI_KEY_1", "AQ.Ab8RN6KDZjgWECGyQWflsVbXT-vTvBlAV3F7PzNXXlYCtAz35w"),
-    os.getenv("GEMINI_KEY_2", "AQ.Ab8RN6KsZk0VX1MSKEFBJE_w_ViTFfvWiqf8g9To_vZZ5GY7Pg")
+    os.getenv("GEMINI_KEY_1", ""),
+    os.getenv("GEMINI_KEY_2", "")
 ]
 API_KEYS = [k for k in raw_keys if k]
 current_key_index = 0
@@ -36,18 +36,22 @@ def ask_gemini_official(prompt_text: str) -> str:
     for _ in range(total_keys):
         active_key = API_KEYS[current_key_index]
         try:
-            client = genai.Client(api_key=active_key)
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt_text,
-                config={
-                    "system_instruction": "Jawab dengan ramah, singkat, dan padat (maksimal 2 kalimat) untuk sistem Smart Home.",
-                    "max_output_tokens": 150,
+            # Menggunakan REST API langsung agar kompatibel 100% dengan Token Cloud
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={active_key}"
+            headers = {"Content-Type": "application/json"}
+            payload = {
+                "contents": [{"parts": [{"text": prompt_text}]}],
+                "systemInstruction": {
+                    "parts": [{"text": "Jawab dengan ramah, singkat, dan padat (maksimal 2 kalimat) untuk sistem Smart Home."}]
                 }
-            )
-            return response.text
+            }
+            
+            req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                return result["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as e:
-            print(f"⚠️ Key index {current_key_index} limit: {e}")
+            print(f"⚠️ Key index {current_key_index} error: {e}")
             current_key_index = (current_key_index + 1) % total_keys
 
     return None
@@ -94,7 +98,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"📩 Pesan masuk: {user_text}")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    # Pengecekan Presisi: Butuh Kata Perintah + Kata Perangkat (Lampu/LED/Sakelar)
+    # Pengecekan Presisi: Perintah Sakelar vs Pertanyaan Umum
     is_on = bool(re.search(r'\b(nyala|nyalakan|on|hidupkan)\b', text_lower))
     is_off = bool(re.search(r'\b(mati|matikan|off|padamkan)\b', text_lower))
     has_device = bool(re.search(r'\b(lampu|led|sakelar|relay)\b', text_lower))

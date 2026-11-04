@@ -34,14 +34,24 @@ def ask_gemini_official(prompt_text: str) -> str:
     global current_key_index
     total_keys = len(API_KEYS)
     if total_keys == 0:
+        print("⚠️ Tidak ada API Key yang terdeteksi di Environment Variables!")
         return None
         
     for _ in range(total_keys):
         active_key = API_KEYS[current_key_index]
         try:
-            # Menggunakan REST API langsung agar kompatibel 100% dengan Token Cloud/AI Studio
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={active_key}"
-            headers = {"Content-Type": "application/json"}
+            # Jika token berawalan AQ.Ab (Google Cloud Token), gunakan Header Authorization Bearer
+            if active_key.startswith("AQ."):
+                url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {active_key}"
+                }
+            else:
+                # Jika token berawalan AIzaSy (AI Studio Key biasa)
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={active_key}"
+                headers = {"Content-Type": "application/json"}
+
             payload = {
                 "contents": [{"parts": [{"text": prompt_text}]}],
                 "systemInstruction": {
@@ -54,11 +64,12 @@ def ask_gemini_official(prompt_text: str) -> str:
                 result = json.loads(response.read().decode("utf-8"))
                 return result["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as e:
-            print(f"⚠️ Key index {current_key_index} error: {e}")
-            # Pindah ke key berikutnya jika ada error / kuota habis
+            print(f"⚠️ Key index {current_key_index} ({active_key[:10]}...) error: {e}")
             current_key_index = (current_key_index + 1) % total_keys
 
     return None
+            
+           
 
 telegram_app = (
     Application.builder()

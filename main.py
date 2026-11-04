@@ -12,7 +12,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 logging.basicConfig(level=logging.INFO)
 
-# Token Telegram diambil dari Environment Variables
+# Token Telegram diambil murni dari Environment Variables Railway
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 
 # Membaca 4 API Keys dari Environment Variables Railway
@@ -40,7 +40,7 @@ def ask_gemini_official(prompt_text: str) -> str:
     for _ in range(total_keys):
         active_key = API_KEYS[current_key_index]
         try:
-            # Jika token berawalan AQ.Ab (Google Cloud Token), gunakan Header Authorization Bearer
+            # Otomatis sesuaikan header jika token memakai format Google Cloud (AQ.Ab...)
             if active_key.startswith("AQ."):
                 url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
                 headers = {
@@ -48,7 +48,6 @@ def ask_gemini_official(prompt_text: str) -> str:
                     "Authorization": f"Bearer {active_key}"
                 }
             else:
-                # Jika token berawalan AIzaSy (AI Studio Key biasa)
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={active_key}"
                 headers = {"Content-Type": "application/json"}
 
@@ -64,12 +63,10 @@ def ask_gemini_official(prompt_text: str) -> str:
                 result = json.loads(response.read().decode("utf-8"))
                 return result["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as e:
-            print(f"⚠️ Key index {current_key_index} ({active_key[:10]}...) error: {e}")
+            print(f"⚠️ Key index {current_key_index} error: {e}")
             current_key_index = (current_key_index + 1) % total_keys
 
     return None
-            
-           
 
 telegram_app = (
     Application.builder()
@@ -119,7 +116,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     has_device = bool(re.search(r'\b(lampu|led|sakelar|relay)\b', text_lower))
     is_question = bool(re.search(r'\b(kenapa|apa|mengapa|bagaimana|jelaskan|fungsi)\b', text_lower))
 
-    # 1. PERINTAH SAKELAR (Hanya jalan jika BUKAN pertanyaan dan ada kata perintah + nama alat)
+    # 1. PERINTAH SAKELAR (Jalan jika BUKAN pertanyaan dan ada kata perintah + nama alat)
     if not is_question and (is_on and has_device):
         device_status["lampu"] = "ON"
         await update.message.reply_text("💡 [Lokal] Lampu berhasil dinyalakan! (Relay: HIGH)")

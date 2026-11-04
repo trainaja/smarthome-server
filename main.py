@@ -11,7 +11,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 logging.basicConfig(level=logging.INFO)
 
-# Token & API Keys (Diambil dari Environment Variables Render)
+# Token & API Keys
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "9140052661:AAF-2Zi4QHlRIoNJrC8F4yl90qb6eMTaQPA")
 
 # Membaca daftar API Keys dari environment
@@ -90,19 +90,26 @@ async def lampu_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    text_lower = user_text.lower()
+    text_lower = user_text.lower().strip()
     print(f"📩 Pesan masuk: {user_text}")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    if re.search(r'\b(nyalakan|hidupkan|nyala|hidup|lampu on)\b', text_lower):
+    # Pengecekan Presisi: Butuh Kata Perintah + Kata Perangkat (Lampu/LED/Sakelar)
+    is_on = bool(re.search(r'\b(nyala|nyalakan|on|hidupkan)\b', text_lower))
+    is_off = bool(re.search(r'\b(mati|matikan|off|padamkan)\b', text_lower))
+    has_device = bool(re.search(r'\b(lampu|led|sakelar|relay)\b', text_lower))
+    is_question = bool(re.search(r'\b(kenapa|apa|mengapa|bagaimana|jelaskan|fungsi)\b', text_lower))
+
+    # 1. PERINTAH SAKELAR (Hanya jalan jika BUKAN pertanyaan dan ada kata perintah + nama alat)
+    if not is_question and (is_on and has_device):
         device_status["lampu"] = "ON"
         await update.message.reply_text("💡 [Lokal] Lampu berhasil dinyalakan! (Relay: HIGH)")
         return
-    elif re.search(r'\b(matikan|mati|tutup|lampu off)\b', text_lower):
+    elif not is_question and (is_off and has_device):
         device_status["lampu"] = "OFF"
         await update.message.reply_text("🔌 [Lokal] Lampu berhasil dimatikan! (Relay: LOW)")
         return
-    elif re.search(r'\b(status|cek|kondisi)\b', text_lower):
+    elif text_lower in ["status", "cek status", "kondisi"]:
         msg = (
             "🟢 Status System: ONLINE\n"
             f"💡 Status Lampu: {device_status['lampu']}\n"
@@ -111,15 +118,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg)
         return
 
+    # 2. PERTANYAAN BEBAS -> Kirim ke Gemini AI
     ai_reply = await asyncio.to_thread(ask_gemini_official, user_text)
     
     if ai_reply:
-        await update.message.reply_text(ai_reply)
+        await update.message.reply_text(f"🤖 {ai_reply}")
     else:
-        if "esp" in text_lower or "esp32" in text_lower:
-            await update.message.reply_text("🤖 ESP32 adalah mikrokontroler hemat biaya berdaya rendah dengan Wi-Fi & Bluetooth bawaan untuk sistem IoT.")
-        else:
-            await update.message.reply_text("🤖 Server Smart Home Aktif! Perintah sakelar berjalan lancar.")
+        await update.message.reply_text("🤖 Maaf, sistem AI sedang tidak dapat merespons. Silakan coba lagi.")
 
 telegram_app.add_handler(CommandHandler("start", start_command))
 telegram_app.add_handler(CommandHandler("status", status_command))

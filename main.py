@@ -12,10 +12,10 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 logging.basicConfig(level=logging.INFO)
 
-# Token Telegram tertanam langsung (dipecah agar lolos dari GitHub Secret Scanning)
-TELEGRAM_TOKEN = ("9140052661:AAF-2Zi4QHlRIoNJrC8F4yl90qb6eMTaQPA").strip()
+# Token Telegram Baru (Tertanam langsung)
+TELEGRAM_TOKEN = ("9140052661:AAEoYTYR2oYrxfspvDE6AXKv4ASK-Brtro8").strip()
 
-# Daftar 4 Gemini API Keys tertanam langsung
+# Daftar 4 Gemini API Keys
 RAW_KEYS = [
     "AQ.Ab8RN6IFPpFGhPFHiKl_8lP2tfP-_TvPrHzgFb0Zcmt9rz6vIw",
     "AQ.Ab8RN6KDMEiUpp9ADCyzpbWqH3xBLastfl2EH99Ix5RS6wmc9A",
@@ -41,7 +41,7 @@ def ask_gemini_official(prompt_text: str) -> str:
     for _ in range(total_keys):
         active_key = API_KEYS[current_key_index]
         try:
-            # Penanganan otomatis header untuk format Google Cloud/Vertex AI (AQ.Ab...) vs AI Studio (AIzaSy...)
+            # Format header sesuai tipe token (Google Cloud vs AI Studio)
             if active_key.startswith("AQ."):
                 url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
                 headers = {
@@ -111,7 +111,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"📩 Pesan masuk: {user_text}")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    # Routing Regex: Sakelar Lokal vs Pertanyaan AI
     is_on = bool(re.search(r'\b(nyala|nyalakan|on|hidupkan)\b', text_lower))
     is_off = bool(re.search(r'\b(mati|matikan|off|padamkan)\b', text_lower))
     has_device = bool(re.search(r'\b(lampu|led|sakelar|relay)\b', text_lower))
@@ -134,7 +133,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg)
         return
 
-    # Kirim pertanyaan umum ke Gemini AI
     ai_reply = await asyncio.to_thread(ask_gemini_official, user_text)
     
     if ai_reply:
